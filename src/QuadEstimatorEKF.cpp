@@ -92,7 +92,7 @@ void QuadEstimatorEKF::UpdateFromIMU(V3F accel, V3F gyro)
   // SMALL ANGLE GYRO INTEGRATION:
   // (replace the code below)
   // make sure you comment it out when you add your own code -- otherwise e.g. you might integrate yaw twice
-
+  /*
   float predictedPitch = pitchEst + dtIMU * gyro.y;
   float predictedRoll = rollEst + dtIMU * gyro.x;
   ekfState(6) = ekfState(6) + dtIMU * gyro.z;	// yaw
@@ -100,7 +100,18 @@ void QuadEstimatorEKF::UpdateFromIMU(V3F accel, V3F gyro)
   // normalize yaw to -pi .. pi
   if (ekfState(6) > F_PI) ekfState(6) -= 2.f*F_PI;
   if (ekfState(6) < -F_PI) ekfState(6) += 2.f*F_PI;
+   */
+  Quaternion<float> eulerQt = Quaternion<float>::FromEuler123_RPY(rollEst, pitchEst, ekfState(6));
 
+  eulerQt.IntegrateBodyRate(gyro, dtIMU);
+  float predictedPitch = eulerQt.Pitch();
+  float predictedRoll = eulerQt.Roll();
+  ekfState(6) = eulerQt.Yaw();
+  
+  // normalize yaw to -pi .. pi
+  if (ekfState(6) > F_PI) ekfState(6) -= 2.f*F_PI;
+  if (ekfState(6) < -F_PI) ekfState(6) += 2.f*F_PI;
+  
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
   // CALCULATE UPDATE
@@ -162,6 +173,13 @@ VectorXf QuadEstimatorEKF::PredictState(VectorXf curState, float dt, V3F accel, 
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
+  V3F inertial = attitude.Rotate_BtoI(accel);
+  predictedState(0) += curState(3) * dt;
+  predictedState(1) += curState(4) * dt;
+  predictedState(2) += curState(5) * dt;
+  predictedState(3) += inertial.x * dt;
+  predictedState(4) += inertial.y * dt;
+  predictedState(5) += inertial.z * dt - 9.81f * dt;
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
@@ -189,6 +207,13 @@ MatrixXf QuadEstimatorEKF::GetRbgPrime(float roll, float pitch, float yaw)
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
+  RbgPrime(0, 0) = - cos(pitch) * sin(yaw);
+  RbgPrime(0, 1) = - sin(roll) * sin(pitch) * sin(yaw) - cos(roll) * cos(yaw);
+  RbgPrime(0, 2) = - cos(roll) * sin(pitch) * sin(yaw) + sin(roll) * cos(yaw);
+  
+  RbgPrime(1, 0) = cos(pitch) * cos(yaw);
+  RbgPrime(1, 1) = sin(roll) * sin(pitch) * cos(yaw) - cos(roll) * sin(yaw);
+  RbgPrime(1, 2) = cos(roll) * sin(pitch) * cos(yaw) + sin(roll) * sin(yaw);
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
@@ -235,8 +260,18 @@ void QuadEstimatorEKF::Predict(float dt, V3F accel, V3F gyro)
 
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
+  gPrime(0, 3) = dt;
+  gPrime(1, 4) = dt;
+  gPrime(2, 5) = dt;
+  gPrime(3, 6) = (RbgPrime(0,0) * accel.x + RbgPrime(0,1) * accel.y + RbgPrime(0,2) * accel.z) * dt;
+  gPrime(4, 6) = (RbgPrime(1,0) * accel.x + RbgPrime(1,1) * accel.y + RbgPrime(2,2) * accel.z) * dt;
+  gPrime(5, 6) = (RbgPrime(2,0) * accel.x + RbgPrime(1,1) * accel.y + RbgPrime(2,2) * accel.z) * dt;
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
+  
+  MatrixXf gPrimeTranspose = gPrime.transpose();
+  
+  ekfCov = gPrime * (ekfCov * gPrimeTranspose) + Q;
 
   ekfState = newState;
 }
@@ -260,6 +295,11 @@ void QuadEstimatorEKF::UpdateFromGPS(V3F pos, V3F vel)
   //  - this is a very simple update
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
+  for(int i = 0; i < 6; ++i) {
+    hPrime(i,i) = 1;
+    zFromX(i) = ekfState(i);
+  }
+
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
   Update(z, hPrime, R_GPS, zFromX);
@@ -281,6 +321,12 @@ void QuadEstimatorEKF::UpdateFromMag(float magYaw)
   //  - The magnetomer measurement covariance is available in member variable R_Mag
   ////////////////////////////// BEGIN STUDENT CODE ///////////////////////////
 
+  hPrime(0, 6) = 1;
+  
+  zFromX(0) = ekfState(6); //current estimated yaw
+  float diffyaw = z(0) - zFromX(0);
+  if (diffyaw > F_PI)  z(0)  -= 2.f*F_PI;
+  if (diffyaw < -F_PI) z(0)  += 2.f*F_PI;
 
   /////////////////////////////// END STUDENT CODE ////////////////////////////
 
