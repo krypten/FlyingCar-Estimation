@@ -186,9 +186,9 @@ float QuadControl::AltitudeControl(float posZCmd, float velZCmd, float posZ, flo
   float d = kpVelZ * (velZCmd - velZ);
   
   float u_bar = p + i + d + accelZCmd;
+  u_bar = CONSTRAIN(u_bar, -maxDescentRate/dt, maxAscentRate/dt);
+  
   float vertical_acc = (u_bar - CONST_GRAVITY) / b_z;
-  // Limit Accelaration
-  vertical_acc = CONSTRAIN(vertical_acc, -maxDescentRate/dt, maxAscentRate/dt);
   
   thrust = - mass * vertical_acc;
   /////////////////////////////// END STUDENT CODE ////////////////////////////
